@@ -4,8 +4,10 @@ import { useState, useRef } from "react";
 import Link from "next/link";
 import Field from "./Field";
 import Button from "../components/Button";
+import { useAuth } from "../context/AuthContext";
 
 export default function AuthForm() {
+  const { loginUser } = useAuth();
   const [mode, setMode] = useState("login");
   const [errors, setErrors] = useState({ confirm: "", form: "" });
   const [name, setName] = useState("");
@@ -15,34 +17,36 @@ export default function AuthForm() {
   const confirmRef = useRef(null);
 
   const isLogin = mode === "login";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+  // Uğurlu əməliyyatdan sonra "who am I" profilini çəkən köməkçi funksiya
+  async function fetchProfileAndLogin() {
+    const res = await fetch(`${API_URL}/auth/me`, {
+      method: "GET",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Sessiya məlumatları əldə edilə bilmədi.");
+    const userData = await res.json();
+    loginUser(userData.user || userData);
+  }
 
   async function sendLoginRequest() {
-    const formData = {
-      email,
-      password,
-    };
+    const formData = { email, password };
 
     try {
-      const response = await fetch("http://localhost:5000/auth/login", {
+      const response = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include", 
         body: JSON.stringify(formData),
       });
 
       if (!response.ok) {
         const jsonResponse = await response.json();
-        console.log("RESPONSE.MESSAGE:", jsonResponse.message);
-
-        throw new Error(jsonResponse.message);
+        throw new Error(jsonResponse.message || "Giriş uğursuz oldu.");
       }
 
-      const data = await response.json();
-      console.log("Logged in:", data);
-      // I need data.token
-      localStorage.setItem("token", data.token);
-
+      await fetchProfileAndLogin();
       setErrors((prev) => ({ ...prev, form: "" }));
     } catch (err) {
       console.error("Error:", err.message);
@@ -52,40 +56,32 @@ export default function AuthForm() {
 
   async function handleLogin(e) {
     e.preventDefault();
-    // TODO: store the auth token, then redirect to "/".
-
-    sendLoginRequest();
-
-    // The values you need are already in state:
-    console.log("login submit", { email, password });
+    await sendLoginRequest();
   }
 
   async function sendSignupRequest() {
-    const formData = {
-      name,
-      email,
-      password,
-    };
+    const formData = { name, email, password };
 
     try {
-      const response = await fetch("http://localhost:5000/auth/signup", {
+      const response = await fetch(`${API_URL}/auth/signup`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(formData),
       });
 
       if (!response.ok) {
         const jsonResponse = await response.json();
-        console.log("RESPONSE.MESSAGE:", jsonResponse.message);
-
-        throw new Error(jsonResponse.message);
+        throw new Error(jsonResponse.message || "Qeydiyyat uğursuz oldu.");
       }
 
-      const data = await response.json();
-      console.log("Signed up:", data);
-      setErrors((prev) => ({ ...prev, form: "" }));
+      // Əgər backend qeydiyyatdan sonra birbaşa login edirsə, profili çəkirik
+      try {
+        await fetchProfileAndLogin();
+      } catch {
+        setMode("login");
+        setErrors((prev) => ({ ...prev, form: "Qeydiyyat tamamlandı. Zəhmət olmasa giriş edin." }));
+      }
     } catch (err) {
       console.error("Error:", err.message);
       setErrors((prev) => ({ ...prev, form: err.message }));
@@ -94,26 +90,19 @@ export default function AuthForm() {
 
   async function handleSignup(e) {
     e.preventDefault();
-    // TODO: validate the fields (e.g. password === confirm),
-    // call your signup API, then log the user in / redirect to "/".
 
     if (password !== confirm) {
-      setErrors((prev) => ({ ...prev, confirm: "Passwords do not match" }));
+      setErrors((prev) => ({ ...prev, confirm: "Şifrələr üst-üstə düşmür" }));
       confirmRef.current?.focus();
       return;
     }
 
     setErrors((prev) => ({ ...prev, confirm: "" }));
-
-    // make the post request
-    sendSignupRequest();
-
-    // The values you need are already in state:
-    console.log("signup submit", { name, email, password, confirm });
+    await sendSignupRequest();
   }
 
   return (
-    <div className="w-full max-w-md neon-border bg-panel rounded-lg p-8">
+    <div className="w-full max-w-md neon-border bg-panel rounded-lg p-8 shadow-[0_0_15px_rgba(0,240,255,0.15)]">
       <Link
         href="/"
         className="block text-center text-primary neon-text font-bold tracking-[0.3em] mb-1 cursor-pointer"
@@ -201,7 +190,7 @@ export default function AuthForm() {
           type="button"
           onClick={() => {
             setMode(isLogin ? "signup" : "login");
-            setErrors({ confirm: "" });
+            setErrors({ confirm: "", form: "" });
           }}
           className="text-primary hover:text-primary-strong underline underline-offset-4 cursor-pointer"
         >
